@@ -1,10 +1,10 @@
 apiVersion: batch/v1                    # Use the stable CronJob API
 kind: CronJob                           # This resource schedules Jobs on a time‑based schedule
 metadata:
-  name: dd-cleaner-cronjob-1          # Unique name of the CronJob
-  namespace: difa                       # Namespace isolation for this resource
+  name: dd-cleaner-cronjob-1            # Unique name of the CronJob
+  namespace: observation                # Namespace isolation for this resource
 spec:
-  schedule: "41 * * * *"                # Run once every hour (cron syntax)
+  schedule: "0 0 * * *"                 # Cron schedule format (run at 00:00 UTC / 3:00 UTC+3)
   startingDeadlineSeconds: 60           # If a run is missed, allow it up to 60s late before skipping
   concurrencyPolicy: Forbid             # Prevent overlapping runs — if a job is still running, skip next
   suspend: false                        # Ensure scheduling is active (not paused)
