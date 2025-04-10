@@ -58,3 +58,4 @@ nunit-*.xml
 **/bin
 **/.vs
 **/*.csproj.user
+src/Executor/Properties/launchSettings.json

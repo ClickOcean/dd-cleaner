@@ -75,7 +75,8 @@ class Program
                     {
                         if (q.Contains("{*}"))
                         {
-                            metricsTags[metric].Clear();
+                            // Remove the metric from the list if it contains wildcard
+                            metricsTags.Remove(metric);
                         }
                         else
                         {
@@ -93,6 +94,7 @@ class Program
                 }
             }
 
+            // Set up only the tags that are used in the queries
             foreach (var metric in allMetrics)
             {
                 if (metricsTags[metric].Count == 0)

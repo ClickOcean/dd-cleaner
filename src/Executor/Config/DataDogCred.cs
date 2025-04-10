@@ -3,11 +3,11 @@ using System.Text.Json.Serialization;
 
 public class DataDogCred
 {
-    [JsonPropertyName("appKey")]
+    [JsonPropertyName("appkey")]
     [DebuggerDisplay("{GetMaskedValue(AppKey)}")]
     public string AppKey { get; set; }
 
-    [JsonPropertyName("apiKey")]
+    [JsonPropertyName("apikey")]
     [DebuggerDisplay("{GetMaskedValue(ApiKey)}")]
     public string ApiKey { get; set; }
 
