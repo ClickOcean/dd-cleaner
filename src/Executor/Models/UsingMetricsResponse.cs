@@ -3,5 +3,5 @@
 public class UsingMetricsResponse
 {
     [JsonPropertyName("data")]
-    public List<UsingMetrics> Data { get; set; } = new();
+    public List<UsingMetrics> Data { get; set; } = [];
 }

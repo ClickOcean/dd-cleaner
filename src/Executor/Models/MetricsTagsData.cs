@@ -3,5 +3,5 @@
 public class MetricsTagsData
 {
     [JsonPropertyName("attributes")]
-    public MetricsTagsAttributes Attributes { get; set; }
+    public MetricsTagsAttributes Attributes { get; set; } = new();
 }

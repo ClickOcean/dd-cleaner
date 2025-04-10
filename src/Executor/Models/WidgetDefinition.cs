@@ -3,5 +3,5 @@
 public class WidgetDefinition
 {
     [JsonPropertyName("requests")]
-    public List<WidgetRequest> Requests { get; set; }
+    public List<WidgetRequest> Requests { get; set; } = [];
 }

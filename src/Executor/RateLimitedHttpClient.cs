@@ -31,7 +31,7 @@
             {
                 var content = await response.Content.ReadAsStringAsync(cancellationToken);
                 // Check for X-RateLimit-Period header
-                if (response.Headers.TryGetValues("x-ratelimit-period", out var values) && 
+                if (response.Headers.TryGetValues("x-ratelimit-period", out var values) &&
                     int.TryParse(values.FirstOrDefault(), out var retryAfterSeconds))
                 {
                     Console.WriteLine($"Rate limited according with header. Waiting for {retryAfterSeconds} seconds before retry.");
@@ -50,7 +50,7 @@
                 return await SendAsync(request, cancellationToken);
             }
 
-            if(_throttleDuration.TotalSeconds > 1)
+            if (_throttleDuration.TotalSeconds > 1)
             {
                 // Reset throttle duration if we are not rate limited
                 _throttleDuration = TimeSpan.FromSeconds(1);
@@ -95,7 +95,7 @@
     private async Task<HttpRequestMessage> CloneHttpRequestMessageAsync(HttpRequestMessage request)
     {
         var clone = new HttpRequestMessage(request.Method, request.RequestUri);
-        
+
         // Copy content if present
         if (request.Content != null)
         {
@@ -103,21 +103,21 @@
             await request.Content.CopyToAsync(ms);
             ms.Position = 0;
             clone.Content = new StreamContent(ms);
-            
+
             // Copy content headers
             if (request.Content.Headers != null)
                 foreach (var h in request.Content.Headers)
                     clone.Content.Headers.Add(h.Key, h.Value);
         }
-        
+
         // Copy request headers
         foreach (var header in request.Headers)
             clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
-            
+
         // Copy properties
         foreach (var prop in request.Properties)
             clone.Properties.Add(prop);
-            
+
         return clone;
     }
 

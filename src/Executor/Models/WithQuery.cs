@@ -3,5 +3,5 @@
 public class WithQuery
 {
     [JsonPropertyName("query")]
-    public string Query { get; set; }
+    public string Query { get; set; } = string.Empty;
 }

@@ -10,15 +10,26 @@ namespace Executor.Config
         public static DataDogConfig[] GetDataDogConfigs()
         {
             var BaseUrl = Environment.GetEnvironmentVariable("DATADOG_BASE_URL") ?? "https://api.datadoghq.com/api/";
-            var credentions = Environment.GetEnvironmentVariable("DATADOG_CREDENTIALS");
-            var credentialsArray = JsonSerializer.Deserialize<DataDogCred[]>(credentions);
-
-            var ApiUrlV1 = BaseUrl + "v1";
-            var ApiUrlV2 = BaseUrl + "v2";
-
-            if (credentialsArray == null || credentialsArray.Length == 0)
+            var credentials = Environment.GetEnvironmentVariable("DATADOG_CREDENTIALS");
+            if (string.IsNullOrEmpty(credentials))
             {
-                throw new Exception("No credentials found");
+                throw new Exception("DATADOG_CREDENTIALS environment variable is not set");
+            }
+
+            var credentialsArray = JsonSerializer.Deserialize<DataDogCred[]>(credentials);
+
+            if (string.IsNullOrEmpty(credentials))
+            {
+                throw new Exception("DATADOG_CREDENTIALS environment variable is not set");
+            }
+
+            try
+            {
+                credentialsArray = JsonSerializer.Deserialize<DataDogCred[]>(credentials) ?? [];
+            }
+            catch (JsonException ex)
+            {
+                throw new Exception("Failed to parse DATADOG_CREDENTIALS as JSON", ex);
             }
 
             return [.. credentialsArray.Select(cred =>

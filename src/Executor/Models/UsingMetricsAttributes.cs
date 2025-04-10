@@ -3,5 +3,5 @@
 public class UsingMetricsAttributes
 {
     [JsonPropertyName("tags")]
-    public List<string> Tags { get; set; } = new();
+    public List<string> Tags { get; set; } = [];
 }

@@ -3,5 +3,5 @@
 public class Widget
 {
     [JsonPropertyName("definition")]
-    public WidgetDefinition Definition { get; set; }
+    public WidgetDefinition Definition { get; set; } = new();
 }
