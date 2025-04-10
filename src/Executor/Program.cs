@@ -60,7 +60,7 @@ class Program
             List<Dashboard> allDashboards = await GetAllDashboards();
             List<string> allDashboardQueries = await GetAllDashboardDetails(allDashboards);
             var allQueries = allMonitorsQueries.Concat(allDashboardQueries);
-            var metricsTags = await GetAllUsingMetrics();
+            var metricsUsingWithTags = await GetAllUsingMetrics();
 
             foreach (var q in allQueries)
             {
@@ -68,21 +68,13 @@ class Program
                 {
                     if (q != null && q.ToString().Contains(metric))
                     {
-                        if (q.Contains("{*}"))
+                        foreach (var tag in metricsUsingWithTags.TryGetValue(metric, out var tags) ? tags : [])
                         {
-                            // Remove the metric from the list if it contains wildcard
-                            metricsTags.Remove(metric);
-                        }
-                        else
-                        {
-                            foreach (var tag in metricsTags.TryGetValue(metric, out var tags) ? tags : [])
+                            if (q.Contains(tag.Name))
                             {
-                                if (q.Contains(tag.Name))
-                                {
-                                    metricsTags[metric].Remove(tag);
-                                    metricsTags[metric].Add((tag.Name, tag.Count + 1));
-                                    break;
-                                }
+                                metricsUsingWithTags[metric].Remove(tag);
+                                metricsUsingWithTags[metric].Add((tag.Name, tag.Count + 1));
+                                break;
                             }
                         }
                     }
@@ -94,9 +86,17 @@ class Program
             {
                 await DeleteTagsConfiguration(metric);
                 Console.WriteLine($"Deleted tags on metric: {metric}");
-                var usedTags = (metricsTags.TryGetValue(metric, out var tags) ? tags : []).Where(x => x.Count > 0).Select(x => x.Name).ToList();
-                await ExcludeTagsOnMetric(metric, ExcludingTags.Where(t => !usedTags.Contains(t)));
-                Console.WriteLine($"Exclude tags on metric: {metric}");
+                if (metricsUsingWithTags.ContainsKey(metric))
+                {
+                    var usedTags = (metricsUsingWithTags.TryGetValue(metric, out var tags) ? tags : []).Where(x => x.Count > 0).Select(x => x.Name).ToList();
+                    await ExcludeTagsOnMetric(metric, ExcludingTags.Where(t => !usedTags.Contains(t)));
+                    Console.WriteLine($"Exclude tags on metric: {metric}");
+                }
+                else
+                {
+                    await DisableAllTagsOnMetric(metric);
+                    Console.WriteLine($"Disabled tags on metric: {metric}");
+                }
             }
         }
         catch (Exception ex)
@@ -199,6 +199,29 @@ class Program
                     metric_type = metricType,
                     exclude_tags_mode = true,
                     tags
+                }
+            }
+        }), Encoding.UTF8, "application/json");
+        var response = await _client.PostAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags", content);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Console.WriteLine("{0}:{1}", response.StatusCode, body);
+    }
+
+    private static async Task DisableAllTagsOnMetric(string metric)
+    {
+        var metricType = await GetMetricTypeAsync(metric);
+
+        var content = new StringContent(JsonSerializer.Serialize(new
+        {
+            data = new
+            {
+                type = "manage_tags",
+                id = metric,
+                attributes = new
+                {
+                    metric_type = metricType,
+                    tags = Array.Empty<string>()
                 }
             }
         }), Encoding.UTF8, "application/json");
