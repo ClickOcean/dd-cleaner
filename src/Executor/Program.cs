@@ -8,6 +8,8 @@ class Program
     private static string DatadogApiUrlV2;
     private static RateLimitedHttpClient _client;
 
+    private static List<string> ExcludingTags = ["host", "cluster_name", "kube_cluster_name", "kube_node", "team"];
+
     static async Task Main(string[] args)
     {
         var configs = DataDogConfig.GetDataDogConfigs();
@@ -55,17 +57,10 @@ class Program
         {
             List<string> allMetrics = await GetAllMetrics();
             var allMonitorsQueries = await GetQueriesFromMonitors();
-            var allDashboards = await GetAllDashboards();
+            List<Dashboard> allDashboards = await GetAllDashboards();
             List<string> allDashboardQueries = await GetAllDashboardDetails(allDashboards);
             var allQueries = allMonitorsQueries.Concat(allDashboardQueries);
             var metricsTags = await GetAllUsingMetrics();
-            foreach (var m in allMetrics)
-            {
-                if (!metricsTags.ContainsKey(m))
-                {
-                    metricsTags[m] = [];
-                }
-            }
 
             foreach (var q in allQueries)
             {
@@ -80,7 +75,7 @@ class Program
                         }
                         else
                         {
-                            foreach (var tag in metricsTags[metric])
+                            foreach (var tag in metricsTags.TryGetValue(metric, out var tags) ? tags : [])
                             {
                                 if (q.Contains(tag.Name))
                                 {
@@ -97,17 +92,11 @@ class Program
             // Set up only the tags that are used in the queries
             foreach (var metric in allMetrics)
             {
-                if (metricsTags[metric].Count == 0)
-                {
-                    await DeleteTagsConfiguration(metric);
-                    Console.WriteLine($"Deleted tags on metric: {metric}");
-                    await DisableAllTagsOnMetric(metric);
-                    Console.WriteLine($"Disabled tags on metric: {metric}");
-                    continue;
-                }
-
-                await SetTagsOnMetric(metric, [.. metricsTags[metric].Where(x => x.Count > 0).Select(x => x.Name)]);
-                Console.WriteLine($"Set new tags config on metric: {metric}");
+                await DeleteTagsConfiguration(metric);
+                Console.WriteLine($"Deleted tags on metric: {metric}");
+                var usedTags = (metricsTags.TryGetValue(metric, out var tags) ? tags : []).Where(x => x.Count > 0).Select(x => x.Name).ToList();
+                await ExcludeTagsOnMetric(metric, ExcludingTags.Where(t => !usedTags.Contains(t)));
+                Console.WriteLine($"Exclude tags on metric: {metric}");
             }
         }
         catch (Exception ex)
@@ -136,10 +125,10 @@ class Program
 
     private static async Task<Dictionary<string, List<(string Name, int Count)>>> GetAllUsingMetrics()
     {
-        var response = await _client.GetStringAsync($"{DatadogApiUrlV2}/metrics?filter[related_assets]=true");
+        var response = await _client.GetStringAsync($"{DatadogApiUrlV2}/metrics?filter[related_assets]=true&window[seconds]=2592000");// 2,630,000 seconds = 1 month
         var metricsResponse = JsonSerializer.Deserialize<UsingMetricsResponse>(response);
 
-        return metricsResponse.Data.Where(x => x.Type == "manage_tags").ToDictionary(x => x.Id, x => x.Attributes.Tags.Select(y => (y, 0)).ToList());
+        return metricsResponse.Data.Where(x => x.Type == "manage_tags").ToDictionary(x => x.Id, x => x.Attributes.Tags.Select(y => (y, 1)).ToList());
     }
 
     private static async Task<List<string>> GetAllMetrics()
@@ -166,59 +155,9 @@ class Program
         return [.. dashboardDetails?.Widgets.SelectMany(x => x.Definition?.Requests?.SelectMany(y => y.Queries?.Select(z => z.Query) ?? []) ?? []) ?? []];
     }
 
-    private static async Task SetTagsOnMetric(string metric, string[] tags)
-    {
-        var content = new StringContent(JsonSerializer.Serialize(new
-        {
-            data = new
-            {
-                type = "manage_tags",
-                id = metric,
-                attributes = new
-                {
-                    exclude_tags_mode = false,
-                    tags
-                }
-            }
-        }), Encoding.UTF8, "application/json");
-        var response = await _client.PatchAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags", content);
-        var body = await response.Content.ReadAsStringAsync();
-
-        Console.WriteLine("{0}:{1}", response.StatusCode, body);
-    }
-
     private static async Task DeleteTagsConfiguration(string metric)
     {
         var response = await _client.DeleteAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags");
-        var body = await response.Content.ReadAsStringAsync();
-
-        Console.WriteLine("{0}:{1}", response.StatusCode, body);
-    }
-
-    private static async Task DisableAllTagsOnMetric(string metric)
-    {
-        var metricType = await GetMetricTypeAsync(metric);
-        // Don't proceed with empty metric type
-        if (string.IsNullOrEmpty(metricType))
-        {
-            Console.WriteLine($"Warning: Cannot disable tags for {metric} - unable to determine metric type");
-            return;
-        }
-
-        var content = new StringContent(JsonSerializer.Serialize(new
-        {
-            data = new
-            {
-                type = "manage_tags",
-                id = metric,
-                attributes = new
-                {
-                    metric_type = metricType,
-                    tags = Array.Empty<string>(),
-                }
-            }
-        }), Encoding.UTF8, "application/json");
-        var response = await _client.PostAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags", content);
         var body = await response.Content.ReadAsStringAsync();
 
         Console.WriteLine("{0}:{1}", response.StatusCode, body);
@@ -237,5 +176,35 @@ class Program
             Console.WriteLine($"Request error: {e.Message}");
             return string.Empty;
         }
+    }
+
+    private static async Task ExcludeTagsOnMetric(string metric, IEnumerable<string> tags)
+    {
+        var metricType = await GetMetricTypeAsync(metric);
+        // Don't proceed with empty metric type
+        if (string.IsNullOrEmpty(metricType))
+        {
+            Console.WriteLine($"Warning: Cannot exclude tags for {metric} - unable to determine metric type");
+            return;
+        }
+
+        var content = new StringContent(JsonSerializer.Serialize(new
+        {
+            data = new
+            {
+                type = "manage_tags",
+                id = metric,
+                attributes = new
+                {
+                    metric_type = metricType,
+                    exclude_tags_mode = true,
+                    tags
+                }
+            }
+        }), Encoding.UTF8, "application/json");
+        var response = await _client.PostAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags", content);
+        var body = await response.Content.ReadAsStringAsync();
+
+        Console.WriteLine("{0}:{1}", response.StatusCode, body);
     }
 }
