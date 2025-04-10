@@ -1,0 +1,32 @@
+apiVersion: batch/v1                    # Use the stable CronJob API
+kind: CronJob                           # This resource schedules Jobs on a time‑based schedule
+metadata:
+  name: dd-cleaner-cronjob-1          # Unique name of the CronJob
+  namespace: difa                       # Namespace isolation for this resource
+spec:
+  schedule: "41 * * * *"                # Run once every hour (cron syntax)
+  startingDeadlineSeconds: 60           # If a run is missed, allow it up to 60s late before skipping
+  concurrencyPolicy: Forbid             # Prevent overlapping runs — if a job is still running, skip next
+  suspend: false                        # Ensure scheduling is active (not paused)
+  jobTemplate:                          # Template for the Job to create each schedule
+    spec:
+      template:
+        spec:
+          containers:
+          - name: dd-cleaner-cronjob-1  # Container name inside each Job pod
+            image: clickocean.io/automation/image  # Docker image to run
+            resources:
+              requests:
+                cpu: 600m             # Reserve 0.6 CPU
+                memory: 200Mi         # Reserve 200Mi RAM
+            env:                       # Environment variables passed into the container
+              - name: DATADOG_CREDENTIALS
+                valueFrom:
+                  secretKeyRef:
+                    name: datadog
+                    key: CREDENTIALS
+              - name: DATADOG_BASE_URL
+                value: "https://api.datadoghq.com/api/"  # Datadog API base URL
+          restartPolicy: Never         # Do not restart completed or failed jobs          
+          imagePullSecrets:
+            - name: regcred            # Credentials for pulling from private registry          
