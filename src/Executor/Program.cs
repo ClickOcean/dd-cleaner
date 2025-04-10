@@ -19,6 +19,19 @@ class Program
 
         foreach (var config in configs)
         {
+            // Validate configuration before proceeding
+            if (string.IsNullOrEmpty(config.ApiKey) || string.IsNullOrEmpty(config.AppKey))
+            {
+                Console.WriteLine($"Invalid configuration for {config.Organization}: API key or App key is missing");
+                continue;
+            }
+
+            if (string.IsNullOrEmpty(config.ApiUrlV1) || string.IsNullOrEmpty(config.ApiUrlV2))
+            {
+                Console.WriteLine($"Invalid configuration for {config.Organization}: API URLs are missing");
+                continue;
+            }
+
             Console.WriteLine($"Using credentials for {config.Organization}");
             // Initialize the rate-limited client once
             _client = new RateLimitedHttpClient(config.ApiKey, config.AppKey);
@@ -183,6 +196,13 @@ class Program
     private static async Task DisableAllTagsOnMetric(string metric)
     {
         var metricType = await GetMetricTypeAsync(metric);
+        // Don't proceed with empty metric type
+        if (string.IsNullOrEmpty(metricType))
+        {
+            Console.WriteLine($"Warning: Cannot disable tags for {metric} - unable to determine metric type");
+            return;
+        }
+
         var content = new StringContent(JsonSerializer.Serialize(new
         {
             data = new
@@ -207,13 +227,13 @@ class Program
         try
         {
             var response = await _client.GetStringAsync($"{DatadogApiUrlV1}/metrics/{metricName}");
-            MetricResponse metricDetails = JsonSerializer.Deserialize<MetricResponse>(response);
-            return metricDetails?.Type;
+            MetricResponse metricDetails = JsonSerializer.Deserialize<MetricResponse>(response) ?? throw new Exception("Failed to deserialize metric response");
+            return metricDetails?.Type ?? string.Empty;
         }
         catch (HttpRequestException e)
         {
             Console.WriteLine($"Request error: {e.Message}");
-            return null;
+            return string.Empty;
         }
     }
 }

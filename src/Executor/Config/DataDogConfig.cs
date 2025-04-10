@@ -16,12 +16,7 @@ namespace Executor.Config
                 throw new Exception("DATADOG_CREDENTIALS environment variable is not set");
             }
 
-            var credentialsArray = JsonSerializer.Deserialize<DataDogCred[]>(credentials);
-
-            if (string.IsNullOrEmpty(credentials))
-            {
-                throw new Exception("DATADOG_CREDENTIALS environment variable is not set");
-            }
+            DataDogCred[] credentialsArray;
 
             try
             {

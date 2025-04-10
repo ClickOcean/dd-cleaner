@@ -57,4 +57,4 @@ nunit-*.xml
 **/obj
 **/bin
 **/.vs
-*.csproj.user
+**/*.csproj.user
