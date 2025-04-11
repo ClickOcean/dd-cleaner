@@ -1,0 +1,203 @@
+name: Autodeploy
+
+on:
+  push:
+    branches:
+     - main
+
+jobs:
+  update:
+    name: Update Workflow
+    runs-on: ubuntu-latest
+    steps:
+      - name: GitHub Authentication
+        uses: oleksiyrudenko/gha-git-credentials@v2.1
+        with:
+          global: true
+          name: automation
+          email: tema.gurtovoy+clickocean-automation@gmail.com
+          actor: clickocean-automation
+          token: ${{ secrets.AUTOMATION_TOKEN }}
+      - name: Clone repo
+        run: git clone https://clickocean-automation:${{ secrets.AUTOMATION_TOKEN }}@github.com/$GITHUB_REPOSITORY.git repo
+      - name: Clone templates
+        run: git clone https://clickocean-automation:${{ secrets.AUTOMATION_TOKEN }}@github.com/ClickOcean/automation.git automation
+      - name: Compare
+        id: diff
+        run: echo "diff=$(diff repo/.github/workflows/containers.yml automation/github/workflows/containers.yml | tr '\n' ' ')" >> $GITHUB_OUTPUT
+      - name: Download latest version
+        if: ${{ steps.diff.outputs.diff != '' }}
+        run: cp automation/github/workflows/containers.yml repo/.github/workflows/containers.yml
+      - name: Commit & Push
+        if: ${{ steps.diff.outputs.diff != '' }}
+        run: |
+          git add .github/workflows/containers.yml
+          git commit -m "Update containers workflow"
+          git push
+        working-directory: repo
+      - name: Cancel
+        if: ${{ steps.diff.outputs.diff != '' }}
+        uses: andymckay/cancel-action@0.2
+
+  set-matrices:
+    name: Set Paths Matrix for Build & Deploy
+    needs: update
+    runs-on: ubuntu-latest
+    outputs:
+      build-matrix: ${{ steps.set-build-matrix.outputs.value }}
+      deploy-matrix: ${{ steps.set-deploy-matrix.outputs.value }}
+      deploy-matrix-is-empty:  ${{ steps.set-deploy-matrix-count.outputs.value == 0 }}
+    steps:
+      - uses: actions/checkout@v2
+
+      - id: set-build-matrix
+        run: echo value={\"path\":$(find . -type f -name Dockerfile | grep -v node_modules | xargs -I {} dirname {} | jq -R -s -c 'split("\n")' | jq '[ .[] | if length > 0 then . else empty end ]')} >> $GITHUB_OUTPUT
+
+      - id: set-deploy-matrix
+        run: echo value={\"path\":$(find . -type d -name k8s | grep -v node_modules | xargs -I {} dirname {} | jq -R -s -c 'split("\n")' | jq '[ .[] | if length > 0 then . else empty end ]')} >> $GITHUB_OUTPUT
+
+      - id: set-deploy-matrix-count
+        run: echo "value=$( echo '${{ steps.set-deploy-matrix.outputs.value }}' | jq '.path | length')" >> $GITHUB_OUTPUT
+
+  test:
+    name: Run Tests
+    needs: set-matrices
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{fromJson(needs.set-matrices.outputs.build-matrix)}}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Run Tests
+        run: ./test.sh
+        working-directory: ${{ matrix.path }}
+        if: hashFiles(format('{0}/{1}', matrix.path, 'test.sh')) != ''
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.YELLDUCK_GIHUB_PKG_TOKEN }}
+
+  build-and-publish-docker-image:
+    name: Build & Push Container
+    needs: [set-matrices, test]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{fromJson(needs.set-matrices.outputs.build-matrix)}}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Read package.json
+        id: package
+        run: |
+          echo package-name=$((jq -r .name package.json -e || (echo "$GITHUB_REPOSITORY" | awk -F / '{print $2}' | sed -e "s/:refs//")) | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
+          echo package-version=$(jq -r .version package.json -e || echo $GITHUB_SHA) >> $GITHUB_ENV
+        working-directory: ${{ matrix.path }}
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare lowercase variables
+        run: |
+          echo repository=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
+          echo repository_owner=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
+
+      - name: Build and push container
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: ${{ matrix.path }}/Dockerfile
+          build-args: |
+            PACKAGE=${{ matrix.path }}
+            NUGET_REGISTRY=https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+            NUGET_USER=${{ github.repository_owner }}
+            NUGET_TOKEN=${{ secrets.NUGET_TOKEN }}
+            NODE_AUTH_TOKEN=${{ secrets.YELLDUCK_GIHUB_PKG_TOKEN }}
+          push: true
+          tags: |
+            ghcr.io/${{ env.repository }}/${{ env.package-name }}:latest
+            ghcr.io/${{ env.repository }}/${{ env.package-name }}:${{ env.package-version }}
+
+  deploy-to-kubernetes:
+    name: Kubernetes Deploy
+    needs: [set-matrices, build-and-publish-docker-image]
+    if: needs.set-matrices.outputs.deploy-matrix-is-empty != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{fromJson(needs.set-matrices.outputs.deploy-matrix)}}
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup YQ
+        uses: chrisdickinson/setup-yq@latest
+        with:
+          yq-version: v4.6.0
+
+      - name: Check automation.yml
+        run: yq e .k8s.clusters automation.yml -e
+        working-directory: ${{ matrix.path }}
+
+      - name: Read package.json
+        id: package
+        run: |
+          echo package-name=$((jq -r .name package.json -e || (echo "$GITHUB_REPOSITORY" | awk -F / '{print $2}' | sed -e "s/:refs//")) | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
+          echo package-version=$(jq -r .version package.json -e || echo $GITHUB_SHA) >> $GITHUB_ENV
+        working-directory: ${{ matrix.path }}
+
+      - name: Prepare lowercase variables
+        run: echo repository=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
+
+      - name: Set docker image tag
+        run: echo docker-image-tag=ghcr.io/${{ env.repository }}/${{ env.package-name }}:${{ env.package-version }} >> $GITHUB_ENV
+
+      - name: Read deployment
+        id: deployment
+        run: |
+          echo deployment-name=$(ls k8s/*deploy*.y*ml | xargs cat | yq e .metadata.name -) >> $GITHUB_ENV
+          echo deployment-namespace=$(ls k8s/*deploy*.y*ml | xargs cat | yq e .metadata.namespace -) >> $GITHUB_ENV
+        working-directory: ${{ matrix.path }}
+
+      - name: Substitute deployment image
+        run: |
+          image=$(echo ${{ env.docker-image-tag }} | sed 's/\//\\\//g')
+          sed -i_bak -e "s/clickocean.io\/automation\/image/$image/" k8s/*.y*ml
+        working-directory: ${{ matrix.path }}
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Deploy to multiple clusters
+        run: |
+          yq eval -j ./automation.yml | jq -c .k8s.clusters[] | while read line
+          do
+            k8s_name=$(jq -r '.name' <<< "$line")
+            k8s_authorization_source=$(jq -r '.authorization | if has("source") then .source else "doctl" end' <<< "$line")
+            k8s_authorization_insecure=$(jq -r '.authorization | if has("insecure") then .insecure else false end' <<< "$line")
+            k8s_rollout_timeout=$(jq -r '.rollout | if has("timeout") then .timeout else "1m" end' <<< "$line")
+
+            echo "Deploying to $k8s_name"
+            echo "k8s_authorization_source=$k8s_authorization_source"
+            echo "k8s_authorization_insecure=$k8s_authorization_insecure"
+            echo "k8s_rollout_timeout=$k8s_rollout_timeout"
+
+            mkdir -p ~/.kube
+
+            if [ "$k8s_authorization_source" = "doctl" ]; then
+              echo "Save doctl kube config"
+              doctl kubernetes cluster kubeconfig show $k8s_name --expiry-seconds 3600 > ~/.kube/config
+            elif [ "$k8s_authorization_source" = "secret" ]; then
+              echo "Save kube config from secret"
+              echo "${{ secrets.KUBECONFIG }}" > ~/.kube/config
+              echo "Switch context to $k8s_name"
+              kubectl config use-context $k8s_name
+            fi
+
+            [[ "$k8s_authorization_insecure" = true ]] && kubectl_insecure_flag="--insecure-skip-tls-verify" || kubectl_insecure_flag=""
+
+            kubectl apply -f ./k8s $kubectl_insecure_flag && \
+            kubectl rollout status deploy/${{ env.deployment-name }} -n ${{ env.deployment-namespace }} --timeout $k8s_rollout_timeout $kubectl_insecure_flag
+          done
+        working-directory: ${{ matrix.path }}

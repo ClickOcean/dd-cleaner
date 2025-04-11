@@ -1,0 +1,5 @@
+k8s:
+  clusters:
+    - name: miscellaneous
+      rollout:
+        timeout: 5m
