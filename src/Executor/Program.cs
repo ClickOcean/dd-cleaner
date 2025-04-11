@@ -8,7 +8,7 @@ class Program
     private static string DatadogApiUrlV2;
     private static RateLimitedHttpClient _client;
 
-    private static List<string> ExcludingTags = ["host", "cluster_name", "kube_cluster_name", "kube_node", "team"];
+    private static readonly List<string> ExcludingTags = ["host", "cluster_name", "kube_cluster_name", "kube_node", "team"];
 
     static async Task Main(string[] args)
     {
@@ -56,40 +56,32 @@ class Program
         try
         {
             List<string> allMetrics = await GetAllMetrics();
+            var usedMetrics = await GetAllUsingMetrics();
             var allMonitorsQueries = await GetQueriesFromMonitors();
             List<Dashboard> allDashboards = await GetAllDashboards();
             List<string> allDashboardQueries = await GetAllDashboardDetails(allDashboards);
             var allQueries = allMonitorsQueries.Concat(allDashboardQueries);
-            var metricsUsingWithTags = await GetAllUsingMetrics();
 
             foreach (var q in allQueries)
             {
                 foreach (var metric in allMetrics)
                 {
-                    if (q != null && q.ToString().Contains(metric))
+                    if (q != null && q.ToString().Contains(metric) && !usedMetrics.Contains(metric))
                     {
-                        foreach (var tag in metricsUsingWithTags.TryGetValue(metric, out var tags) ? tags : [])
-                        {
-                            if (q.Contains(tag.Name))
-                            {
-                                metricsUsingWithTags[metric].Remove(tag);
-                                metricsUsingWithTags[metric].Add((tag.Name, tag.Count + 1));
-                                break;
-                            }
-                        }
+                        usedMetrics.Add(metric);
                     }
                 }
             }
 
-            // Set up only the tags that are used in the queries
+            usedMetrics = [.. usedMetrics.Distinct()];
+
             foreach (var metric in allMetrics)
             {
                 await DeleteTagsConfiguration(metric);
                 Console.WriteLine($"Deleted tags on metric: {metric}");
-                if (metricsUsingWithTags.ContainsKey(metric))
+                if (usedMetrics.Contains(metric))
                 {
-                    var usedTags = (metricsUsingWithTags.TryGetValue(metric, out var tags) ? tags : []).Where(x => x.Count > 0).Select(x => x.Name).ToList();
-                    await ExcludeTagsOnMetric(metric, ExcludingTags.Where(t => !usedTags.Contains(t)));
+                    await ExcludeTagsOnMetric(metric, ExcludingTags);
                     Console.WriteLine($"Exclude tags on metric: {metric}");
                 }
                 else
@@ -123,12 +115,12 @@ class Program
         return result;
     }
 
-    private static async Task<Dictionary<string, List<(string Name, int Count)>>> GetAllUsingMetrics()
+    private static async Task<List<string>> GetAllUsingMetrics()
     {
         var response = await _client.GetStringAsync($"{DatadogApiUrlV2}/metrics?filter[related_assets]=true&window[seconds]=2592000");// 2,630,000 seconds = 1 month
         var metricsResponse = JsonSerializer.Deserialize<UsingMetricsResponse>(response);
 
-        return metricsResponse.Data.Where(x => x.Type == "manage_tags").ToDictionary(x => x.Id, x => x.Attributes.Tags.Select(y => (y, 1)).ToList());
+        return [.. (metricsResponse ?? new()).Data.Where(x => x.Type == "metrics").Select(x => x.Id)];
     }
 
     private static async Task<List<string>> GetAllMetrics()
@@ -137,7 +129,7 @@ class Program
         var response = await _client.GetStringAsync($"{DatadogApiUrlV1}/metrics?from={seconds}");
         var metricsResponse = JsonSerializer.Deserialize<MetricsResponse>(response);
 
-        return metricsResponse.Metrics;
+        return (metricsResponse ?? new()).Metrics;
     }
 
     private static async Task<List<Dashboard>> GetAllDashboards()
@@ -145,7 +137,7 @@ class Program
         var response = await _client.GetStringAsync($"{DatadogApiUrlV1}/dashboard");
         var dashboardsResponse = JsonSerializer.Deserialize<DashboardsResponse>(response);
 
-        return dashboardsResponse.Dashboards;
+        return (dashboardsResponse ?? new()).Dashboards;
     }
 
     private static async Task<List<string>> GetDashboardDetails(string dashboardId)
