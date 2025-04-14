@@ -77,17 +77,24 @@ class Program
 
             foreach (var metric in allMetrics)
             {
-                await DeleteTagsConfiguration(metric);
-                Console.WriteLine($"Deleted tags on metric: {metric}");
-                if (usedMetrics.Contains(metric))
+                try
                 {
-                    await ExcludeTagsOnMetric(metric, ExcludingTags);
-                    Console.WriteLine($"Exclude tags on metric: {metric}");
+                    await DeleteTagsConfiguration(metric);
+                    Console.WriteLine($"Deleted tags on metric: {metric}");
+                    if (usedMetrics.Contains(metric))
+                    {
+                        await ExcludeTagsOnMetric(metric, ExcludingTags);
+                        Console.WriteLine($"Exclude tags on metric: {metric}");
+                    }
+                    else
+                    {
+                        await DisableAllTagsOnMetric(metric);
+                        Console.WriteLine($"Disabled tags on metric: {metric}");
+                    }
                 }
-                else
+                catch (Exception ex)
                 {
-                    await DisableAllTagsOnMetric(metric);
-                    Console.WriteLine($"Disabled tags on metric: {metric}");
+                    Console.WriteLine($"Error processing metric {metric}: {ex.Message}");
                 }
             }
         }
