@@ -158,8 +158,8 @@ class Program
     {
         var response = await _client.DeleteAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags");
         var body = await response.Content.ReadAsStringAsync();
-
         Console.WriteLine("{0}:{1}", response.StatusCode, body);
+        response.EnsureSuccessStatusCode();
     }
 
     private static async Task<string> GetMetricTypeAsync(string metricName)
@@ -203,8 +203,9 @@ class Program
         }), Encoding.UTF8, "application/json");
         var response = await _client.PostAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags", content);
         var body = await response.Content.ReadAsStringAsync();
-
         Console.WriteLine("{0}:{1}", response.StatusCode, body);
+
+        response.EnsureSuccessStatusCode();
     }
 
     private static async Task DisableAllTagsOnMetric(string metric)
@@ -226,7 +227,8 @@ class Program
         }), Encoding.UTF8, "application/json");
         var response = await _client.PostAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags", content);
         var body = await response.Content.ReadAsStringAsync();
-
         Console.WriteLine("{0}:{1}", response.StatusCode, body);
+
+        response.EnsureSuccessStatusCode();
     }
 }

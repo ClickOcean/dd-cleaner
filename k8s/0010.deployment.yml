@@ -7,7 +7,7 @@ spec:
   schedule: "0 0 * * 2-5"
   startingDeadlineSeconds: 60 
   concurrencyPolicy: Forbid 
-  suspend: true
+  suspend: false
   jobTemplate:
     spec:
       template:
