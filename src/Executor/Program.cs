@@ -79,6 +79,7 @@ class Program
             {
                 try
                 {
+                    //// Delete tags configuration if it exists ignore 404 if not
                     await DeleteTagsConfiguration(metric);
                     Console.WriteLine($"Deleted tags on metric: {metric}");
                     if (usedMetrics.Contains(metric))
@@ -159,7 +160,6 @@ class Program
         var response = await _client.DeleteAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags");
         var body = await response.Content.ReadAsStringAsync();
         Console.WriteLine("{0}:{1}", response.StatusCode, body);
-        response.EnsureSuccessStatusCode();
     }
 
     private static async Task<string> GetMetricTypeAsync(string metricName)
@@ -204,8 +204,6 @@ class Program
         var response = await _client.PostAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags", content);
         var body = await response.Content.ReadAsStringAsync();
         Console.WriteLine("{0}:{1}", response.StatusCode, body);
-
-        response.EnsureSuccessStatusCode();
     }
 
     private static async Task DisableAllTagsOnMetric(string metric)
@@ -228,7 +226,5 @@ class Program
         var response = await _client.PostAsync($"{DatadogApiUrlV2}/metrics/{metric}/tags", content);
         var body = await response.Content.ReadAsStringAsync();
         Console.WriteLine("{0}:{1}", response.StatusCode, body);
-
-        response.EnsureSuccessStatusCode();
     }
 }
